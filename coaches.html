@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>👨‍🏫 教練名單管理</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h2 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .form-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; }
+        button { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; background: #667eea; color: white; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        .btn-del { background: #ff4d4d; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>👨‍🏫 教練名單管理</h2>
+        <div class="form-group">
+            <input type="text" id="coachName" placeholder="輸入教練姓名">
+            <button onclick="addCoach()">新增教練</button>
+        </div>
+        <table>
+            <thead><tr><th>教練姓名</th><th>操作</th></tr></thead>
+            <tbody id="coachList"></tbody>
+        </table>
+        <br>
+        <button onclick="window.location.href='index1.html'" style="background: #95a5a6;">返回學員管理</button>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyC9qjrUplWuwfM7qVut8piC-QYHJVQutRU",
+            authDomain: "table-tennis-checkin.firebaseapp.com",
+            projectId: "table-tennis-checkin",
+            storageBucket: "table-tennis-checkin.firebasestorage.app",
+            messagingSenderId: "847061564663",
+            appId: "1:847061564663:web:e465582a1592317cdf67f2"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        window.addCoach = async function() {
+            const name = document.getElementById('coachName').value.trim();
+            if (!name) return alert("請輸入姓名");
+            await addDoc(collection(db, 'coaches'), { name: name });
+            document.getElementById('coachName').value = '';
+            fetchCoaches();
+        };
+
+        async function fetchCoaches() {
+            const q = query(collection(db, 'coaches'), orderBy('name'));
+            const snap = await getDocs(q);
+            const list = document.getElementById('coachList');
+            list.innerHTML = '';
+            snap.forEach(cDoc => {
+                list.innerHTML += `<tr><td>${cDoc.data().name}</td><td><button class="btn-del" onclick="deleteCoach('${cDoc.id}')">刪除</button></td></tr>`;
+            });
+        }
+
+        window.deleteCoach = async function(id) {
+            if (confirm("確定刪除此教練？")) {
+                await deleteDoc(doc(db, 'coaches', id));
+                fetchCoaches();
+            }
+        };
+
+        fetchCoaches();
+    </script>
+</body>
+</html>
