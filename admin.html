@@ -3,28 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📋 教練管理後台 - 簽名查看版</title>
+    <title>📋 教練管理後台 - 教練分配版</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; padding: 20px; color: #333; }
-        .admin-container { max-width: 900px; margin: 0 auto; }
+        .admin-container { max-width: 950px; margin: 0 auto; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h2 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         
-        /* 表單與表格樣式 */
-        .add-form { display: flex; gap: 10px; margin-bottom: 20px; }
-        input { padding: 10px; border: 1px solid #ddd; border-radius: 6px; flex: 1; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .add-form { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+        input, select { padding: 10px; border: 1px solid #ddd; border-radius: 6px; }
+        input[type="text"] { flex: 2; min-width: 150px; }
+        input[type="number"], select { flex: 1; min-width: 120px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; background: white; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #f8f9fa; }
         
-        /* 狀態樣式 */
-        .low-remains { color: #e74c3c; font-weight: bold; }
-        .btn { padding: 8px 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; transition: 0.3s; }
+        .btn { padding: 8px 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; transition: 0.3s; margin-right: 5px; }
         .btn-recharge { background: #3498db; color: white; }
         .btn-view { background: #f39c12; color: white; }
         .btn-delete { background: #95a5a6; color: white; }
+        .btn-nav { background: #667eea; color: white; text-decoration: none; padding: 10px 15px; border-radius: 6px; font-size: 14px; }
 
-        /* 簽名彈窗樣式 */
+        .coach-badge { background: #e8f4fd; color: #2980b9; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+
+        /* 簽名彈窗 */
         #sigModal {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.7); justify-content: center; align-items: center; z-index: 1000;
@@ -36,29 +39,48 @@
 <body>
 
 <div class="admin-container">
-    <h1>📋 教練管理後台</h1>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>📋 教練管理後台</h1>
+        <a href="coaches.html" class="btn-nav">⚙️ 管理教練名單</a>
+    </div>
 
     <div class="card">
         <h2>➕ 新增學員</h2>
         <div class="add-form">
             <input type="text" id="newName" placeholder="學員姓名">
-            <input type="number" id="newCount" placeholder="初始堂數" value="10" style="flex: 0.3;">
-            <button class="btn btn-recharge" onclick="addNewStudent()" style="background: #27ae60;">建立檔案</button>
+            <input type="number" id="newCount" placeholder="堂數" value="10">
+            <select id="coachSelect">
+                <option value="未指定">-- 選擇負責教練 --</option>
+            </select>
+            <button class="btn btn-recharge" onclick="addNewStudent()" style="background: #27ae60; flex: 0.5;">建立檔案</button>
         </div>
     </div>
 
     <div class="card">
         <h2>👥 學員清單</h2>
         <table>
-            <thead><tr><th>學員姓名</th><th>剩餘堂數</th><th>操作</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>學員姓名</th>
+                    <th>負責教練</th>
+                    <th>剩餘堂數</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
             <tbody id="studentList"></tbody>
         </table>
     </div>
 
     <div class="card">
-        <h2>🖊️ 最近簽到紀錄 (含簽名)</h2>
+        <h2>🖊️ 最近簽到紀錄</h2>
         <table>
-            <thead><tr><th>時間</th><th>學員</th><th>簽名</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>時間</th>
+                    <th>學員</th>
+                    <th>簽名</th>
+                </tr>
+            </thead>
             <tbody id="checkinList"></tbody>
         </table>
     </div>
@@ -88,7 +110,22 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // 讀取學員清單
+    // 1. 載入教練下拉選單
+    async function loadCoaches() {
+        try {
+            const q = query(collection(db, 'coaches'), orderBy('name'));
+            const snap = await getDocs(q);
+            const select = document.getElementById('coachSelect');
+            // 保留第一個預設選項
+            select.innerHTML = '<option value="未指定">-- 選擇負責教練 --</option>';
+            snap.forEach(cDoc => {
+                const name = cDoc.data().name;
+                select.innerHTML += `<option value="${name}">${name}</option>`;
+            });
+        } catch (e) { console.error("載入教練失敗", e); }
+    }
+
+    // 2. 讀取學員清單 (增加教練欄位顯示)
     async function fetchStudents() {
         const q = query(collection(db, 'students'), orderBy('name', 'asc'));
         const snap = await getDocs(q);
@@ -98,8 +135,9 @@
             const data = sDoc.data();
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${data.name}</td>
-                <td class="${data.remains <= 2 ? 'low-remains' : ''}">${data.remains} 堂</td>
+                <td><b>${data.name}</b></td>
+                <td><span class="coach-badge">${data.coach || '未指定'}</span></td>
+                <td>${data.remains} 堂</td>
                 <td>
                     <button class="btn btn-recharge" onclick="recharge('${sDoc.id}', ${data.remains})">+10</button>
                     <button class="btn btn-delete" onclick="deleteStudent('${sDoc.id}', '${data.name}')">刪除</button>
@@ -109,57 +147,65 @@
         });
     }
 
-    // 讀取簽到紀錄（含簽名圖片）
+    // 3. 讀取簽到紀錄
     async function fetchCheckins() {
-        const q = query(collection(db, 'checkins'), orderBy('time', 'desc'), limit(20));
+        const q = query(collection(db, 'checkins'), orderBy('time', 'desc'), limit(15));
         const snap = await getDocs(q);
         const listBody = document.getElementById('checkinList');
         listBody.innerHTML = '';
         snap.forEach((cDoc) => {
             const data = cDoc.data();
-            const timeStr = data.time?.toDate().toLocaleString() || '讀取中...';
+            const timeStr = data.time?.toDate().toLocaleString('zh-TW') || '記錄中...';
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${timeStr}</td>
-                <td><b>${data.name}</b></td>
+                <td>${data.name}</td>
                 <td>
-                    ${data.signature ? `<button class="btn btn-view" onclick="viewSig('${data.signature}')">查看簽名</button>` : '<small style="color:#ccc">無簽名</small>'}
+                    ${data.signature ? `<button class="btn btn-view" onclick="viewSig('${data.signature}')">查看簽名</button>` : '<small>無簽名</small>'}
                 </td>
             `;
             listBody.appendChild(tr);
         });
     }
 
-    // --- 彈窗功能 ---
+    // --- 管理功能 ---
+    window.addNewStudent = async function() {
+        const name = document.getElementById('newName').value.trim();
+        const count = parseInt(document.getElementById('newCount').value);
+        const coach = document.getElementById('coachSelect').value;
+        
+        if (!name || isNaN(count)) return alert('請輸入完整學員資訊');
+        
+        await addDoc(collection(db, 'students'), { 
+            name: name, 
+            remains: count,
+            coach: coach 
+        });
+        
+        document.getElementById('newName').value = '';
+        fetchStudents();
+    };
+
+    window.recharge = async function(id, current) {
+        if (!confirm('確認幫該學員儲值 10 堂？')) return;
+        await updateDoc(doc(db, 'students', id), { remains: current + 10 });
+        fetchStudents();
+    };
+
+    window.deleteStudent = async function(id, name) {
+        if (!confirm(`警告：確定要永久刪除學員「${name}」嗎？`)) return;
+        await deleteDoc(doc(db, 'students', id));
+        fetchStudents();
+    };
+
     window.viewSig = (url) => {
         document.getElementById('sigImage').src = url;
         document.getElementById('sigModal').style.display = 'flex';
     };
     window.closeModal = () => document.getElementById('sigModal').style.display = 'none';
 
-    // --- 基礎管理功能 ---
-    window.addNewStudent = async function() {
-        const name = document.getElementById('newName').value.trim();
-        const count = parseInt(document.getElementById('newCount').value);
-        if (!name || isNaN(count)) return alert('請填寫完整資訊');
-        await addDoc(collection(db, 'students'), { name, remains: count });
-        document.getElementById('newName').value = '';
-        fetchStudents();
-    };
-
-    window.recharge = async function(id, current) {
-        if (!confirm('確認儲值 10 堂？')) return;
-        await updateDoc(doc(db, 'students', id), { remains: current + 10 });
-        fetchStudents();
-    };
-
-    window.deleteStudent = async function(id, name) {
-        if (!confirm(`確定刪除 ${name}？`)) return;
-        await deleteDoc(doc(db, 'students', id));
-        fetchStudents();
-    };
-
-    // 初始化讀取
+    // 初始化載入
+    loadCoaches();
     fetchStudents();
     fetchCheckins();
 </script>
