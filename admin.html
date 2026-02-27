@@ -3,31 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📋 教練管理後台</title>
+    <title>📋 教練管理後台 - 簽名查看版</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; padding: 20px; color: #333; }
-        .admin-container { max-width: 800px; margin: 0 auto; }
+        .admin-container { max-width: 900px; margin: 0 auto; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h2 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        h2 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         
-        /* 表單樣式 */
+        /* 表單與表格樣式 */
         .add-form { display: flex; gap: 10px; margin-bottom: 20px; }
         input { padding: 10px; border: 1px solid #ddd; border-radius: 6px; flex: 1; }
-        button { padding: 10px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        .btn-add { background: #27ae60; color: white; }
-        
-        /* 表格樣式 */
-        table { width: 100%; border-collapse: collapse; background: white; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
-        th { background: #f8f9fa; color: #666; }
+        th { background: #f8f9fa; }
+        
+        /* 狀態樣式 */
         .low-remains { color: #e74c3c; font-weight: bold; }
-        
-        /* 功能按鈕 */
-        .btn-recharge { background: #3498db; color: white; margin-right: 5px; }
-        .btn-delete { background: #95a5a6; color: white; font-size: 12px; }
-        button:hover { opacity: 0.8; }
-        
-        .loading { text-align: center; color: #666; font-style: italic; }
+        .btn { padding: 8px 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; transition: 0.3s; }
+        .btn-recharge { background: #3498db; color: white; }
+        .btn-view { background: #f39c12; color: white; }
+        .btn-delete { background: #95a5a6; color: white; }
+
+        /* 簽名彈窗樣式 */
+        #sigModal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal-content { background: white; padding: 20px; border-radius: 15px; text-align: center; max-width: 500px; width: 90%; }
+        #sigImage { border: 1px solid #eee; width: 100%; margin-bottom: 15px; background: #fafafa; }
     </style>
 </head>
 <body>
@@ -40,32 +43,39 @@
         <div class="add-form">
             <input type="text" id="newName" placeholder="學員姓名">
             <input type="number" id="newCount" placeholder="初始堂數" value="10" style="flex: 0.3;">
-            <button class="btn-add" onclick="addNewStudent()">建立檔案</button>
+            <button class="btn btn-recharge" onclick="addNewStudent()" style="background: #27ae60;">建立檔案</button>
         </div>
     </div>
 
     <div class="card">
         <h2>👥 學員清單</h2>
         <table>
-            <thead>
-                <tr>
-                    <th>學員姓名</th>
-                    <th>剩餘堂數</th>
-                    <th>管理操作</th>
-                </tr>
-            </thead>
-            <tbody id="studentList">
-                <tr><td colspan="3" class="loading">讀取資料中...</td></tr>
-            </tbody>
+            <thead><tr><th>學員姓名</th><th>剩餘堂數</th><th>操作</th></tr></thead>
+            <tbody id="studentList"></tbody>
         </table>
+    </div>
+
+    <div class="card">
+        <h2>🖊️ 最近簽到紀錄 (含簽名)</h2>
+        <table>
+            <thead><tr><th>時間</th><th>學員</th><th>簽名</th></tr></thead>
+            <tbody id="checkinList"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="sigModal" onclick="closeModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <h3>學員簽名確認</h3>
+        <img id="sigImage" src="" alt="簽名">
+        <button class="btn btn-delete" onclick="closeModal()">關閉</button>
     </div>
 </div>
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getFirestore, collection, getDocs, addDoc, updateDoc, doc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+    import { getFirestore, collection, getDocs, addDoc, updateDoc, doc, deleteDoc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
-    // 這裡請使用跟簽到前台一樣的 Firebase Config
     const firebaseConfig = {
         apiKey: "AIzaSyC9qjrUplWuwfM7qVut8piC-QYHJVQutRU",
         authDomain: "table-tennis-checkin.firebaseapp.com",
@@ -78,62 +88,80 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // 讀取所有學員
+    // 讀取學員清單
     async function fetchStudents() {
         const q = query(collection(db, 'students'), orderBy('name', 'asc'));
         const snap = await getDocs(q);
         const listBody = document.getElementById('studentList');
         listBody.innerHTML = '';
-
         snap.forEach((sDoc) => {
             const data = sDoc.data();
-            const isLow = data.remains <= 2 ? 'low-remains' : '';
-            
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${data.name}</td>
-                <td class="${isLow}">${data.remains} 堂</td>
+                <td class="${data.remains <= 2 ? 'low-remains' : ''}">${data.remains} 堂</td>
                 <td>
-                    <button class="btn-recharge" onclick="recharge('${sDoc.id}', ${data.remains})">+10 堂</button>
-                    <button class="btn-delete" onclick="deleteStudent('${sDoc.id}', '${data.name}')">刪除</button>
+                    <button class="btn btn-recharge" onclick="recharge('${sDoc.id}', ${data.remains})">+10</button>
+                    <button class="btn btn-delete" onclick="deleteStudent('${sDoc.id}', '${data.name}')">刪除</button>
                 </td>
             `;
             listBody.appendChild(tr);
         });
     }
 
-    // 新增學員邏輯
+    // 讀取簽到紀錄（含簽名圖片）
+    async function fetchCheckins() {
+        const q = query(collection(db, 'checkins'), orderBy('time', 'desc'), limit(20));
+        const snap = await getDocs(q);
+        const listBody = document.getElementById('checkinList');
+        listBody.innerHTML = '';
+        snap.forEach((cDoc) => {
+            const data = cDoc.data();
+            const timeStr = data.time?.toDate().toLocaleString() || '讀取中...';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${timeStr}</td>
+                <td><b>${data.name}</b></td>
+                <td>
+                    ${data.signature ? `<button class="btn btn-view" onclick="viewSig('${data.signature}')">查看簽名</button>` : '<small style="color:#ccc">無簽名</small>'}
+                </td>
+            `;
+            listBody.appendChild(tr);
+        });
+    }
+
+    // --- 彈窗功能 ---
+    window.viewSig = (url) => {
+        document.getElementById('sigImage').src = url;
+        document.getElementById('sigModal').style.display = 'flex';
+    };
+    window.closeModal = () => document.getElementById('sigModal').style.display = 'none';
+
+    // --- 基礎管理功能 ---
     window.addNewStudent = async function() {
         const name = document.getElementById('newName').value.trim();
         const count = parseInt(document.getElementById('newCount').value);
         if (!name || isNaN(count)) return alert('請填寫完整資訊');
-
-        await addDoc(collection(db, 'students'), {
-            name: name,
-            remains: count
-        });
-        alert('學員建立成功！');
+        await addDoc(collection(db, 'students'), { name, remains: count });
         document.getElementById('newName').value = '';
         fetchStudents();
     };
 
-    // 儲值邏輯
     window.recharge = async function(id, current) {
-        if (!confirm('確認要幫該學員儲值 10 堂課嗎？')) return;
-        const sRef = doc(db, 'students', id);
-        await updateDoc(sRef, { remains: current + 10 });
+        if (!confirm('確認儲值 10 堂？')) return;
+        await updateDoc(doc(db, 'students', id), { remains: current + 10 });
         fetchStudents();
     };
 
-    // 刪除學員邏輯
     window.deleteStudent = async function(id, name) {
-        if (!confirm(`確定要永久刪除學員「${name}」的檔案嗎？此動作無法復原。`)) return;
+        if (!confirm(`確定刪除 ${name}？`)) return;
         await deleteDoc(doc(db, 'students', id));
         fetchStudents();
     };
 
-    // 初始加載
+    // 初始化讀取
     fetchStudents();
+    fetchCheckins();
 </script>
 
 </body>
